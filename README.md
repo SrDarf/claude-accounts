@@ -41,6 +41,18 @@ curl -fsSL https://raw.githubusercontent.com/SrDarf/claude-accounts/main/install
 
 The installer fetches a dependency-free Node core into `~/.claude-accounts`, resolves your real `claude` binary, and wires a thin `claude` wrapper into your shell (PowerShell, cmd, bash, zsh). Existing config is backed up (`.bak-<timestamp>`) and edited inside marked blocks — re-running is safe and idempotent.
 
+### Language
+
+On install you choose the interface language — **English** or **Português (BR)**. When run interactively (a TTY), the installer prompts; the choice is saved to `~/.claude-accounts/config.json` and used by the selector and all messages.
+
+Non-interactive (`curl | node`) installs auto-detect from your OS locale. Force a language explicitly:
+
+```
+curl -fsSL .../install.js | node - --lang pt    # or: --lang en
+```
+
+Change it any time by editing `~/.claude-accounts/config.json` (`{"lang":"pt"}`) or setting `CLAUDE_ACCOUNTS_LANG=en`.
+
 Open a new shell afterward.
 
 ## Usage

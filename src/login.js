@@ -6,6 +6,7 @@ const cp = require('node:child_process');
 const vault = require('./vault.js');
 const { readJson } = require('./fsutil.js');
 const { resolveRealClaude } = require('./claude-path.js');
+const { t } = require('./i18n.js');
 
 function defaultSpawn(cfgDir) {
   const claude = resolveRealClaude();
@@ -17,8 +18,8 @@ function defaultSpawn(cfgDir) {
 }
 
 async function addAccount(name, { spawnFn = defaultSpawn } = {}) {
-  if (!/^[A-Za-z0-9._-]+$/.test(name)) throw new Error(`nome invalido: '${name}'`);
-  if (vault.list().includes(name)) throw new Error(`conta '${name}' ja existe`);
+  if (!/^[A-Za-z0-9._-]+$/.test(name)) throw new Error(t('invalidName', name));
+  if (vault.list().includes(name)) throw new Error(t('exists', name));
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ca-login-'));
   try {

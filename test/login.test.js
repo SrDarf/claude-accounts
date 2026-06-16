@@ -43,5 +43,5 @@ test('addAccount rejects duplicate name', async () => {
   const vault = require('../src/vault.js');
   vault.writeSlot('dup', { credentialsText: '{}', oauthAccount: {} });
   const { addAccount } = require('../src/login.js');
-  await assert.rejects(() => addAccount('dup', { spawnFn: () => ({ status: 0 }) }), /existe/);
+  await assert.rejects(() => addAccount('dup', { spawnFn: () => ({ status: 0 }) }), /dup/);
 });

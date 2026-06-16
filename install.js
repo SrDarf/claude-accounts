@@ -46,6 +46,76 @@ function progress(cur, total, label) {
   }
 }
 
+// --- installer i18n (runs before the runtime core exists) ---
+const MSG = {
+  en: {
+    downloading: 'downloading core...',
+    starting: 'starting...',
+    found: (r) => `claude found: ${r}`,
+    installing: 'installing shell wrappers...',
+    installed: 'wrappers installed',
+    ready: (cmd) => `done! open a new shell and run ${cmd}`,
+  },
+  pt: {
+    downloading: 'baixando core...',
+    starting: 'iniciando...',
+    found: (r) => `claude encontrado: ${r}`,
+    installing: 'instalando wrappers de shell...',
+    installed: 'wrappers instalados',
+    ready: (cmd) => `pronto! abra um shell novo e rode ${cmd}`,
+  },
+};
+
+function normLang(v) {
+  if (!v) return null;
+  const s = String(v).toLowerCase();
+  if (s.startsWith('pt')) return 'pt';
+  if (s.startsWith('en')) return 'en';
+  return null;
+}
+
+function argLang() {
+  const a = process.argv.slice(2);
+  const i = a.findIndex((x) => x === '--lang' || x.startsWith('--lang='));
+  if (i === -1) return null;
+  const v = a[i].includes('=') ? a[i].split('=').slice(1).join('=') : a[i + 1];
+  return normLang(v);
+}
+
+function detectLang() {
+  const env = process.env.CLAUDE_ACCOUNTS_LANG || process.env.LC_ALL || process.env.LANG || '';
+  const n = normLang(env);
+  if (n) return n;
+  try { return normLang(Intl.DateTimeFormat().resolvedOptions().locale) || 'en'; } catch { return 'en'; }
+}
+
+function promptLang() {
+  return new Promise((resolve) => {
+    const rl = require('node:readline').createInterface({ input: process.stdin, output: process.stdout });
+    console.log(`  ${C.bold('Escolha o idioma / Choose language')}`);
+    console.log(`    ${C.accent('1')}) Português (BR)`);
+    console.log(`    ${C.accent('2')}) English`);
+    rl.question(`  [1]: `, (ans) => {
+      rl.close();
+      const a = (ans || '').trim().toLowerCase();
+      console.log('');
+      resolve(a === '2' || a.startsWith('en') ? 'en' : 'pt');
+    });
+  });
+}
+
+async function chooseLang() {
+  const explicit = argLang() || normLang(process.env.CLAUDE_ACCOUNTS_LANG);
+  if (explicit) return explicit;
+  if (process.stdin.isTTY) return promptLang();
+  return detectLang();
+}
+
+function writeConfig(lang) {
+  fs.mkdirSync(CORE_DIR, { recursive: true });
+  fs.writeFileSync(path.join(CORE_DIR, 'config.json'), JSON.stringify({ lang }, null, 2));
+}
+
 function upsertBlock(content, block, start, end) {
   const wrapped = `${start}\n${block}\n${end}`;
   const re = new RegExp(`${escapeRe(start)}[\\s\\S]*?${escapeRe(end)}`);
@@ -80,9 +150,9 @@ function httpGet(url) {
   });
 }
 
-async function fetchAll() {
+async function fetchAll(startLabel) {
   const files = [...CORE_FILES, ...WRAPPER_FILES];
-  progress(0, files.length, 'iniciando...');
+  progress(0, files.length, startLabel);
   let i = 0;
   for (const rel of files) {
     const body = await httpGet(`${RAW}/${rel}`);
@@ -149,22 +219,26 @@ async function main() {
   const maj = Number(process.version.match(/^v(\d+)/)[1]);
   if (maj < 18) { console.error('Node >= 18 required'); process.exit(1); }
   logo();
-  step('baixando core...');
-  await fetchAll();
+  const lang = await chooseLang();
+  const M = MSG[lang];
+  writeConfig(lang);
+  step(M.downloading);
+  await fetchAll(M.starting);
   const real = resolveRealClaude();
-  done(`claude encontrado: ${C.dim(real)}`);
-  step('instalando wrappers de shell...');
+  done(M.found(C.dim(real)));
+  step(M.installing);
   if (process.platform === 'win32') {
     installWindows(real);
   } else {
     installUnix(real);
   }
-  done('wrappers instalados');
-  console.log(`\n  ${C.green('✓')} ${C.bold('pronto!')} abra um shell novo e rode ${C.accent('claude --accounts')}\n`);
+  done(M.installed);
+  const readyMsg = M.ready(C.accent('claude --accounts'));
+  console.log(`\n  ${C.green('✓')} ${C.bold(readyMsg)}\n`);
 }
 
 if (require.main === module) {
   main().catch((e) => { console.error(`\n  ${C.accent('✗')} ${e.message}\n`); process.exit(1); });
 }
 
-module.exports = { upsertBlock, backupThenWrite, resolveRealClaude };
+module.exports = { upsertBlock, backupThenWrite, resolveRealClaude, normLang, detectLang };

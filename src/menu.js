@@ -1,4 +1,5 @@
 'use strict';
+const { t } = require('./i18n.js');
 
 // Claude-ish terracotta accent (truecolor). Falls back gracefully on terminals
 // that ignore SGR — text still readable, just uncolored.
@@ -17,8 +18,8 @@ function buildItems(names, current, emails = {}) {
   }));
   return [
     ...accounts,
-    { label: '+ adicionar conta', value: '__add__', current: false, email: '' },
-    { label: '- remover conta', value: '__remove__', current: false, email: '' },
+    { label: t('menuAdd'), value: '__add__', current: false, email: '' },
+    { label: t('menuRemove'), value: '__remove__', current: false, email: '' },
   ];
 }
 
@@ -34,7 +35,7 @@ function reduceKey(state, key) {
 function renderLines(items, idx) {
   const names = items.filter((it) => !it.value.startsWith('__'));
   const labelW = names.reduce((m, it) => Math.max(m, it.label.length), 0);
-  const lines = ['', `  ${accentBold('Claude Accounts')}`, ''];
+  const lines = ['', `  ${accentBold(t('menuTitle'))}`, ''];
 
   items.forEach((it, i) => {
     if (it.value === '__add__') lines.push('');
@@ -48,13 +49,13 @@ function renderLines(items, idx) {
       const padded = it.label.padEnd(labelW);
       const label = selected ? accentBold(padded) : padded;
       const mail = it.email ? `  ${dim(it.email)}` : '';
-      const tag = it.current ? `   ${accent('● ativa')}` : '';
+      const tag = it.current ? `   ${accent(`● ${t('menuActive')}`)}` : '';
       lines.push(`  ${pointer} ${label}${mail}${tag}`);
     }
   });
 
   lines.push('');
-  lines.push(`  ${dim('↑/↓ navegar · enter trocar · esc sair')}`);
+  lines.push(`  ${dim(t('menuHint'))}`);
   return lines;
 }
 

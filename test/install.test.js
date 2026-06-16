@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { upsertBlock } = require('../install.js');
+const { upsertBlock, normLang } = require('../install.js');
 
 const START = '# >>> claude-accounts >>>';
 const END = '# <<< claude-accounts <<<';
@@ -21,4 +21,12 @@ test('upsertBlock replaces only its own block', () => {
   assert.ok(!out.includes('OLD'));
   // exactly one block
   assert.strictEqual(out.split(START).length - 1, 1);
+});
+
+test('normLang accepts pt/en variants, rejects others', () => {
+  assert.strictEqual(normLang('pt-BR'), 'pt');
+  assert.strictEqual(normLang('PT'), 'pt');
+  assert.strictEqual(normLang('en_US'), 'en');
+  assert.strictEqual(normLang('de'), null);
+  assert.strictEqual(normLang(undefined), null);
 });

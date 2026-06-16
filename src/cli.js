@@ -2,6 +2,7 @@
 'use strict';
 const vault = require('./vault.js');
 const { switchAccount } = require('./switch.js');
+const { t } = require('./i18n.js');
 
 async function main(argv) {
   const [cmd, ...rest] = argv;
@@ -17,31 +18,31 @@ async function main(argv) {
       return 0;
     }
     case 'switch': {
-      if (!rest[0]) { console.error('uso: switch <nome>'); return 2; }
+      if (!rest[0]) { console.error(t('usageSwitch')); return 2; }
       const r = switchAccount(rest[0]);
-      console.log(r.switched ? `Conta ativa: ${r.account}` : `Ja na conta '${r.account}'.`);
+      console.log(r.switched ? t('activeNow', r.account) : t('already', r.account));
       return 0;
     }
     case 'remove': {
-      if (!rest[0]) { console.error('uso: remove <nome>'); return 2; }
+      if (!rest[0]) { console.error(t('usageRemove')); return 2; }
       const fs = require('node:fs');
       const p = require('./paths.js');
       fs.rmSync(p.slotDir(rest[0]), { recursive: true, force: true });
-      console.log(`removida: ${rest[0]}`);
+      console.log(t('removed', rest[0]));
       return 0;
     }
     case 'add': {
       const { addAccount } = require('./login.js');
-      const name = rest[0] || await prompt('Nome da nova conta: ');
+      const name = rest[0] || await prompt(t('promptName'));
       const r = await addAccount(name, {});
-      console.log(r.added ? `Adicionada: ${name}` : `Nada capturado (login abortado).`);
+      console.log(r.added ? t('added', name) : t('nothingCaptured'));
       return r.added ? 0 : 1;
     }
     case 'menu': {
       return runInteractiveMenu();
     }
     default:
-      console.error(`subcomando desconhecido: ${cmd || '(vazio)'}`);
+      console.error(t('unknown', cmd || '(vazio)'));
       return 2;
   }
 }
@@ -63,14 +64,14 @@ function emailMap() {
 async function runInteractiveMenu() {
   const { runMenu } = require('./menu.js');
   const choice = await runMenu(vault.list(), vault.getCurrent(), emailMap());
-  if (choice === null) { console.log('Cancelado.'); return 1; }
+  if (choice === null) { console.log(t('cancelled')); return 1; }
   if (choice === '__add__') {
     const { addAccount } = require('./login.js');
-    const name = await prompt('Nome da nova conta: ');
+    const name = await prompt(t('promptName'));
     const r = await addAccount(name, {});
-    if (!r.added) { console.log('Nada capturado.'); return 1; }
+    if (!r.added) { console.log(t('nothingShort')); return 1; }
     switchAccount(name);
-    console.log(`Conta ativa: ${name}`);
+    console.log(t('activeNow', name));
     return 0;
   }
   if (choice === '__remove__') {
@@ -79,12 +80,12 @@ async function runInteractiveMenu() {
       const fs = require('node:fs');
       const p = require('./paths.js');
       fs.rmSync(p.slotDir(sub), { recursive: true, force: true });
-      console.log(`removida: ${sub}`);
+      console.log(t('removed', sub));
     }
     return 0;
   }
   const r = switchAccount(choice);
-  console.log(r.switched ? `Conta ativa: ${r.account}` : `Ja na conta '${r.account}'.`);
+  console.log(r.switched ? t('activeNow', r.account) : t('already', r.account));
   return 0;
 }
 

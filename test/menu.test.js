@@ -19,7 +19,7 @@ test('renderLines shows title, email, active tag and pointer', () => {
   const out = renderLines(items, 0).join('\n');
   assert.match(out, /Claude Accounts/);
   assert.match(out, /w@x\.com/);
-  assert.match(out, /ativa/);
+  assert.match(out, /●/); // active marker, language-independent
   assert.match(out, /❯/);
 });
 
