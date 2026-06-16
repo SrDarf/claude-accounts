@@ -8,7 +8,7 @@ const cp = require('node:child_process');
 
 const RAW = 'https://raw.githubusercontent.com/SrDarf/claude-accounts/main';
 const CORE_FILES = [
-  'src/paths.js', 'src/fsutil.js', 'src/vault.js', 'src/switch.js',
+  'src/paths.js', 'src/fsutil.js', 'src/i18n.js', 'src/vault.js', 'src/switch.js',
   'src/login.js', 'src/claude-path.js', 'src/menu.js', 'src/cli.js',
 ];
 const WRAPPER_FILES = [
@@ -241,4 +241,4 @@ if (require.main === module) {
   main().catch((e) => { console.error(`\n  ${C.accent('✗')} ${e.message}\n`); process.exit(1); });
 }
 
-module.exports = { upsertBlock, backupThenWrite, resolveRealClaude, normLang, detectLang };
+module.exports = { upsertBlock, backupThenWrite, resolveRealClaude, normLang, detectLang, CORE_FILES };

@@ -1,6 +1,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { upsertBlock, normLang } = require('../install.js');
+const fs = require('node:fs');
+const path = require('node:path');
+const { upsertBlock, normLang, CORE_FILES } = require('../install.js');
 
 const START = '# >>> claude-accounts >>>';
 const END = '# <<< claude-accounts <<<';
@@ -21,6 +23,13 @@ test('upsertBlock replaces only its own block', () => {
   assert.ok(!out.includes('OLD'));
   // exactly one block
   assert.strictEqual(out.split(START).length - 1, 1);
+});
+
+test('CORE_FILES covers every src/*.js module', () => {
+  const srcDir = path.join(__dirname, '..', 'src');
+  const onDisk = fs.readdirSync(srcDir).filter((f) => f.endsWith('.js')).sort();
+  const listed = CORE_FILES.filter((f) => f.startsWith('src/')).map((f) => f.slice(4)).sort();
+  assert.deepStrictEqual(listed, onDisk, 'installer CORE_FILES must list all src modules');
 });
 
 test('normLang accepts pt/en variants, rejects others', () => {
