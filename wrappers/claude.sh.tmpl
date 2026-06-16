@@ -1,0 +1,15 @@
+# >>> claude-accounts >>>
+claude() {
+  if [ "$1" = "--accounts" ]; then
+    shift
+    node "__CORE__/src/cli.js" menu || return $?
+    command claude "$@"
+  elif [ "$1" = "--account" ]; then
+    node "__CORE__/src/cli.js" switch "$2" || return $?
+    shift 2
+    command claude "$@"
+  else
+    command claude "$@"
+  fi
+}
+# <<< claude-accounts <<<

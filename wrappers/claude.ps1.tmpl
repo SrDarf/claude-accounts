@@ -1,0 +1,17 @@
+# >>> claude-accounts >>>
+function claude {
+  $core = "__CORE__"
+  $real = "__REAL__"
+  if ($args.Count -ge 1 -and $args[0] -eq '--accounts') {
+    $rest = @(); if ($args.Count -gt 1) { $rest = $args[1..($args.Count-1)] }
+    node "$core\src\cli.js" menu; if ($LASTEXITCODE -ne 0) { return }
+    & $real @rest
+  } elseif ($args.Count -ge 1 -and $args[0] -eq '--account') {
+    $rest = @(); if ($args.Count -gt 2) { $rest = $args[2..($args.Count-1)] }
+    node "$core\src\cli.js" switch $args[1]; if ($LASTEXITCODE -ne 0) { return }
+    & $real @rest
+  } else {
+    & $real @args
+  }
+}
+# <<< claude-accounts <<<
