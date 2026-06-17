@@ -203,19 +203,6 @@ async function fetchAll(startLabel) {
   }
 }
 
-function resolveRealClaude() {
-  const isWin = process.platform === 'win32';
-  const exts = isWin ? ['.exe', '.cmd', '.bat', ''] : [''];
-  const wrapperDir = path.join(HOME, 'bin');
-  for (const dir of (process.env.PATH || '').split(path.delimiter)) {
-    if (!dir || path.resolve(dir) === path.resolve(wrapperDir)) continue;
-    for (const ext of exts) {
-      const c = path.join(dir, 'claude' + ext);
-      if (fs.existsSync(c)) return c;
-    }
-  }
-  throw new Error('claude real nao encontrado no PATH');
-}
 
 function installUnix(real) {
   const tmpl = fs.readFileSync(path.join(CORE_DIR, 'wrappers', 'claude.sh.tmpl'), 'utf8')
@@ -268,6 +255,9 @@ async function main() {
   writeConfig(lang);
   step(M.downloading);
   await fetchAll(M.starting);
+  // Reuse the runtime resolver now that the core is fetched, so the installer
+  // and the wrappers agree on the real binary (and both honor CLAUDE_ACCOUNTS_REAL).
+  const { resolveRealClaude } = require(path.join(CORE_DIR, 'src', 'claude-path.js'));
   const real = resolveRealClaude();
   done(M.found(C.dim(real)));
   try {
@@ -289,4 +279,4 @@ if (require.main === module) {
   main().catch((e) => { console.error(`\n  ${C.accent('✗')} ${e.message}\n`); process.exit(1); });
 }
 
-module.exports = { upsertBlock, backupThenWrite, resolveRealClaude, normLang, detectLang, CORE_FILES };
+module.exports = { upsertBlock, backupThenWrite, normLang, detectLang, CORE_FILES };

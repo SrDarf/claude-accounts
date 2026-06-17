@@ -6,10 +6,18 @@ const { atomicWrite, readJson, chmodSafe } = require('./fsutil.js');
 const { withLock } = require('./lock.js');
 const { t } = require('./i18n.js');
 
-// Names whose slot dir would collide with a control file in the vault: the
-// marker (vaultDir/current) and the lock (vaultDir/.lock). Creating or removing
-// a slot with these names would corrupt the current-account tracking.
-const RESERVED = new Set(['current', '.lock']);
+// Concurrency contract: the mutators here (writeSlot, setCurrent, clearCurrent,
+// injectOAuthIntoLive, saveCurrentLogin) do NOT lock; they assume the caller
+// holds the vault lock (p.lockPath()). The locked entry points are adoptCurrent
+// and removeAccount (self-lock here), plus switchAccount and addAccount (wrap
+// their whole operation in withLock in their own modules). withLock is not
+// reentrant, so never call a self-locking function from inside another lock.
+
+// Names that must never become a slot. 'current'/'.lock' collide with the
+// marker (vaultDir/current) and lock (vaultDir/.lock) control files; '.' and
+// '..' escape the vault dir (slotDir('..') === ~/.claude). Rejecting them here
+// is the single source of truth, so switch/add/remove are all protected.
+const RESERVED = new Set(['current', '.lock', '.', '..']);
 
 function validAccountName(name) {
   return typeof name === 'string' && /^[A-Za-z0-9._-]+$/.test(name) && !RESERVED.has(name);
@@ -52,14 +60,14 @@ function readSlot(name) {
   };
 }
 
+// Tolerant slot-oauth read: a corrupt file must not crash list/menu rendering.
+function storedOAuth(name) {
+  try { return readJson(p.slotOAuth(name)); } catch { return null; }
+}
+
 function email(name) {
-  // Tolerant: a corrupt slot oauth file must not crash `list`/menu rendering.
-  try {
-    const o = readJson(p.slotOAuth(name));
-    return (o && o.emailAddress) || '';
-  } catch {
-    return '';
-  }
+  const o = storedOAuth(name);
+  return (o && o.emailAddress) || '';
 }
 
 function deriveName(oauthAccount) {
@@ -111,17 +119,20 @@ function injectOAuthIntoLive(oauthAccount) {
 // (the live oauth email), NOT the marker, so a stale or dangling marker (e.g.
 // after a crash mid-switch, or after removing the active account) can never make
 // us save the live tokens into the wrong account's slot.
+// Returns { name, oauth } where oauth is the identity to persist if the live
+// login has none of its own: the live identity wins when present, otherwise we
+// keep the marker slot's stored oauth so a switch never blanks it out.
 function resolveCurrentSlot(liveOAuth) {
   const liveEmail = liveOAuth && liveOAuth.emailAddress;
   const slots = list();
   if (liveEmail) {
     const match = slots.find((n) => email(n) === liveEmail);
-    if (match) return { name: match, existing: true };
+    if (match) return { name: match, oauth: liveOAuth };
   } else {
     const cur = getCurrent();
-    if (cur && slots.includes(cur)) return { name: cur, existing: true };
+    if (cur && slots.includes(cur)) return { name: cur, oauth: storedOAuth(cur) };
   }
-  return { name: uniqueName(deriveName(liveOAuth || {}), slots), existing: false };
+  return { name: uniqueName(deriveName(liveOAuth || {}), slots), oauth: liveOAuth || {} };
 }
 
 // Capture the live login into the vault slot that matches its identity. Returns
@@ -131,13 +142,8 @@ function saveCurrentLogin() {
   if (!fs.existsSync(p.liveCreds())) return null;
   const credentialsText = fs.readFileSync(p.liveCreds(), 'utf8');
   const liveOAuth = captureOAuthFromLive();
-  const { name, existing } = resolveCurrentSlot(liveOAuth);
-  let kept = null;
-  if (existing) {
-    try { kept = readJson(p.slotOAuth(name)); } catch { kept = null; }
-  }
-  const oauthAccount = liveOAuth || kept || {};
-  writeSlot(name, { credentialsText, oauthAccount });
+  const { name, oauth } = resolveCurrentSlot(liveOAuth);
+  writeSlot(name, { credentialsText, oauthAccount: liveOAuth || oauth || {} });
   return name;
 }
 

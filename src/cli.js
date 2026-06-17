@@ -22,8 +22,7 @@ async function main(argv) {
     }
     case 'switch': {
       if (!rest[0]) { console.error(t('usageSwitch')); return 2; }
-      const r = switchAccount(rest[0]);
-      console.log(r.switched ? t('activeNow', r.account) : t('already', r.account));
+      reportSwitch(switchAccount(rest[0]));
       return 0;
     }
     case 'remove': {
@@ -56,10 +55,14 @@ function prompt(q) {
   });
 }
 
-function emailMap() {
+function emailMap(names = vault.list()) {
   const m = {};
-  for (const n of vault.list()) m[n] = vault.email(n);
+  for (const n of names) m[n] = vault.email(n);
   return m;
+}
+
+function reportSwitch(r) {
+  console.log(r.switched ? t('activeNow', r.account) : t('already', r.account));
 }
 
 async function runInteractiveMenu() {
@@ -68,23 +71,24 @@ async function runInteractiveMenu() {
   // account switch (or add+switch) returns 0, which is what makes the wrapper
   // launch claude afterwards; remove and cancel return without launching.
   for (;;) {
-    const choice = await runMenu(vault.list(), vault.getCurrent(), emailMap());
+    const names = vault.list();
+    const current = vault.getCurrent();
+    const emails = emailMap(names);
+    const choice = await runMenu(names, current, emails);
     if (choice === null) { console.log(t('cancelled')); return 1; }
     if (choice === '__add__') {
       const { addAccount } = require('./login.js');
       const name = await prompt(t('promptName'));
       const r = await addAccount(name, {});
       if (!r.added) { console.log(t('nothingShort')); return 1; }
-      switchAccount(name);
-      console.log(t('activeNow', name));
+      reportSwitch(switchAccount(name));
       return 0;
     }
     if (choice === '__remove__') {
-      const accounts = vault.list();
-      if (!accounts.length) { console.log(t('nothingToRemove')); continue; }
+      if (!names.length) { console.log(t('nothingToRemove')); continue; }
       // Distinct destructive picker (no add/remove rows, red styling) so it can't
       // be mistaken for the switch menu, plus an explicit confirmation.
-      const sub = await runMenu(accounts, vault.getCurrent(), emailMap(), {
+      const sub = await runMenu(names, current, emails, {
         title: t('removeTitle'), hint: t('removeHint'), withActions: false, danger: true,
       });
       if (sub && await confirm(t('confirmRemove', sub))) {
@@ -93,8 +97,7 @@ async function runInteractiveMenu() {
       }
       continue; // back to the main menu; never launch claude from a remove
     }
-    const r = switchAccount(choice);
-    console.log(r.switched ? t('activeNow', r.account) : t('already', r.account));
+    reportSwitch(switchAccount(choice));
     return 0;
   }
 }

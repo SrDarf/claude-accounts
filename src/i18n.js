@@ -70,17 +70,6 @@ function norm(v) {
   return null;
 }
 
-function detectLocale() {
-  const env = process.env.CLAUDE_ACCOUNTS_LANG || process.env.LC_ALL || process.env.LANG || '';
-  const n = norm(env);
-  if (n) return n;
-  try {
-    return norm(Intl.DateTimeFormat().resolvedOptions().locale) || 'en';
-  } catch {
-    return 'en';
-  }
-}
-
 // The on-disk language never changes within a single CLI process, so read and
 // parse config.json at most once instead of on every t() lookup (the menu render
 // calls t() many times). The env var is still checked first and uncached, so it
@@ -112,4 +101,4 @@ function t(key, ...args) {
   return typeof s === 'function' ? s(...args) : s;
 }
 
-module.exports = { t, lang, norm, detectLocale, STRINGS };
+module.exports = { t, lang, norm, STRINGS };
