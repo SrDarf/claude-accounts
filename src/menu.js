@@ -135,25 +135,24 @@ function runMenu(names, current, emails = {}, opts = {}) {
 function confirm(message, opts = {}) {
   const danger = opts.danger !== false;
   const labels = [t('confirmNo'), t('confirmYes')];
-  let idx = 0; // default to the safe choice
+  let state = { idx: 0, n: labels.length }; // default to the safe choice
   const view = () => {
     const lines = ['', `  ${danger ? red(message) : accentBold(message)}`, ''];
     labels.forEach((label, i) => {
-      const selected = i === idx;
+      const selected = i === state.idx;
       const pointer = selected ? (danger && i === 1 ? red('❯') : accent('❯')) : ' ';
-      let text;
-      if (!selected) text = dim(label);
-      else text = (danger && i === 1) ? red(label) : accentBold(label);
+      const text = !selected ? dim(label) : ((danger && i === 1) ? red(label) : accentBold(label));
       lines.push(`  ${pointer} ${text}`);
     });
     lines.push('');
     lines.push(`  ${dim(t('confirmHint'))}`);
     return lines;
   };
+  // Same reducer the account menu uses; for a two-item list up/down just toggle.
   return interact(view, (key) => {
-    if (key === 'up' || key === 'down') { idx = (idx + 1) % 2; return null; }
-    if (key === 'enter') return { value: idx === 1 };
-    if (key === 'escape') return { value: false };
+    state = reduceKey(state, key);
+    if (state.done === 'select') return { value: state.idx === 1 };
+    if (state.done === 'cancel') return { value: false };
     return null;
   });
 }

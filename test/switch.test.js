@@ -1,18 +1,10 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { freshHome } = require('./helpers.js');
 
-function setup() {
-  const h = fs.mkdtempSync(path.join(os.tmpdir(), 'sw-home-'));
-  process.env.CLAUDE_ACCOUNTS_HOME = h;
-  fs.mkdirSync(path.join(h, '.claude', '.accounts'), { recursive: true });
-  for (const m of ['vault', 'switch', 'paths', 'fsutil']) {
-    delete require.cache[require.resolve(`../src/${m}.js`)];
-  }
-  return h;
-}
+const setup = () => freshHome({ accounts: true, bust: ['vault', 'switch', 'paths', 'fsutil'] });
 
 test('switch loads target creds + oauth and updates marker', () => {
   const h = setup();

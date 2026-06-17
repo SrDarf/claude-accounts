@@ -31,6 +31,19 @@ test('a held lock is exclusive (a second acquire cannot also create it)', () => 
   });
 });
 
+test('withLock is reentrant within a process (nested same-path lock runs)', () => {
+  const lp = tmpLock();
+  const r = withLock(lp, () => {
+    assert.ok(fs.existsSync(lp), 'lock held during outer section');
+    return withLock(lp, () => {
+      assert.ok(fs.existsSync(lp), 'still held during nested re-entry');
+      return 'inner';
+    });
+  });
+  assert.strictEqual(r, 'inner');
+  assert.ok(!fs.existsSync(lp), 'released only after the outermost holder');
+});
+
 test('a stale lock left by a crashed process is stolen', () => {
   const lp = tmpLock();
   fs.writeFileSync(lp, '99999\n'); // pretend a dead process holds it

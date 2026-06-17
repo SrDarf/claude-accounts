@@ -6,12 +6,12 @@ const { atomicWrite, readJson, chmodSafe } = require('./fsutil.js');
 const { withLock } = require('./lock.js');
 const { t } = require('./i18n.js');
 
-// Concurrency contract: the mutators here (writeSlot, setCurrent, clearCurrent,
-// injectOAuthIntoLive, saveCurrentLogin) do NOT lock; they assume the caller
-// holds the vault lock (p.lockPath()). The locked entry points are adoptCurrent
-// and removeAccount (self-lock here), plus switchAccount and addAccount (wrap
-// their whole operation in withLock in their own modules). withLock is not
-// reentrant, so never call a self-locking function from inside another lock.
+// Concurrency contract: every mutator here self-locks the vault (p.lockPath()).
+// The lock is reentrant within a process, so a multi-step operation that must be
+// atomic as a whole (switchAccount in switch.js, addAccount in login.js) wraps its
+// sequence in withLock and the nested per-method locks become free re-entries.
+// Reads do not lock: atomicWrite renames into place, so a reader always sees a
+// whole old-or-new file, never a torn one.
 
 // Names that must never become a slot. 'current'/'.lock' collide with the
 // marker (vaultDir/current) and lock (vaultDir/.lock) control files; '.' and
@@ -38,19 +38,23 @@ function getCurrent() {
 }
 
 function setCurrent(name) {
-  atomicWrite(p.markerPath(), name);
+  withLock(p.lockPath(), () => atomicWrite(p.markerPath(), name));
 }
 
 function clearCurrent() {
-  try { fs.rmSync(p.markerPath(), { force: true }); } catch { /* nothing to clear */ }
+  withLock(p.lockPath(), () => {
+    try { fs.rmSync(p.markerPath(), { force: true }); } catch { /* nothing to clear */ }
+  });
 }
 
 function writeSlot(name, { credentialsText, oauthAccount }) {
-  atomicWrite(p.slotCreds(name), credentialsText);
-  atomicWrite(p.slotOAuth(name), JSON.stringify(oauthAccount, null, 2));
-  chmodSafe(p.slotDir(name), 0o700);
-  chmodSafe(p.slotCreds(name), 0o600);
-  chmodSafe(p.slotOAuth(name), 0o600);
+  withLock(p.lockPath(), () => {
+    atomicWrite(p.slotCreds(name), credentialsText);
+    atomicWrite(p.slotOAuth(name), JSON.stringify(oauthAccount, null, 2));
+    chmodSafe(p.slotDir(name), 0o700);
+    chmodSafe(p.slotCreds(name), 0o600);
+    chmodSafe(p.slotOAuth(name), 0o600);
+  });
 }
 
 function readSlot(name) {
@@ -110,9 +114,11 @@ function captureOAuthFromLive() {
 }
 
 function injectOAuthIntoLive(oauthAccount) {
-  const j = readLiveJson();
-  j.oauthAccount = oauthAccount;
-  atomicWrite(p.liveJson(), JSON.stringify(j, null, 2));
+  withLock(p.lockPath(), () => {
+    const j = readLiveJson();
+    j.oauthAccount = oauthAccount;
+    atomicWrite(p.liveJson(), JSON.stringify(j, null, 2));
+  });
 }
 
 // Decide which slot the *currently live* login belongs to. We key off identity
@@ -136,15 +142,17 @@ function resolveCurrentSlot(liveOAuth) {
 }
 
 // Capture the live login into the vault slot that matches its identity. Returns
-// the slot name, or null if there is no live login to save. Caller holds the
-// lock; this never overwrites the live files.
+// the slot name, or null if there is no live login to save. Never overwrites the
+// live files; self-locks (and is also called inside switch/adopt's outer lock).
 function saveCurrentLogin() {
-  if (!fs.existsSync(p.liveCreds())) return null;
-  const credentialsText = fs.readFileSync(p.liveCreds(), 'utf8');
-  const liveOAuth = captureOAuthFromLive();
-  const { name, oauth } = resolveCurrentSlot(liveOAuth);
-  writeSlot(name, { credentialsText, oauthAccount: liveOAuth || oauth || {} });
-  return name;
+  return withLock(p.lockPath(), () => {
+    if (!fs.existsSync(p.liveCreds())) return null;
+    const credentialsText = fs.readFileSync(p.liveCreds(), 'utf8');
+    const liveOAuth = captureOAuthFromLive();
+    const { name, oauth } = resolveCurrentSlot(liveOAuth);
+    writeSlot(name, { credentialsText, oauthAccount: liveOAuth || oauth || {} });
+    return name;
+  });
 }
 
 // First-run safety: register the already logged-in account as the initial slot

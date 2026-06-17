@@ -1,15 +1,10 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const cp = require('node:child_process');
+const { freshHome } = require('./helpers.js');
 
-function freshHome() {
-  const h = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-home-'));
-  fs.mkdirSync(path.join(h, '.claude', '.accounts'), { recursive: true });
-  return h;
-}
 function run(home, args) {
   return cp.spawnSync(process.execPath, [path.join(__dirname, '..', 'src', 'cli.js'), ...args], {
     env: { ...process.env, CLAUDE_ACCOUNTS_HOME: home },
@@ -18,7 +13,7 @@ function run(home, args) {
 }
 
 test('list prints accounts; current prints marker', () => {
-  const h = freshHome();
+  const h = freshHome({ accounts: true });
   process.env.CLAUDE_ACCOUNTS_HOME = h;
   delete require.cache[require.resolve('../src/vault.js')];
   const vault = require('../src/vault.js');
@@ -33,7 +28,7 @@ test('list prints accounts; current prints marker', () => {
 });
 
 test('switch <name> changes marker', () => {
-  const h = freshHome();
+  const h = freshHome({ accounts: true });
   process.env.CLAUDE_ACCOUNTS_HOME = h;
   delete require.cache[require.resolve('../src/vault.js')];
   const vault = require('../src/vault.js');
@@ -49,6 +44,6 @@ test('switch <name> changes marker', () => {
 });
 
 test('unknown subcommand exits non-zero', () => {
-  const r = run(freshHome(), ['bogus']);
+  const r = run(freshHome({ accounts: true }), ['bogus']);
   assert.notStrictEqual(r.status, 0);
 });
