@@ -3,6 +3,8 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+// Isolate the core dir so a steal's audit record never touches the real home.
+process.env.CLAUDE_ACCOUNTS_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'lock-home-'));
 const { withLock, STALE_MS } = require('../src/lock.js');
 
 function tmpLock() {
@@ -52,4 +54,7 @@ test('a stale lock left by a crashed process is stolen', () => {
   const r = withLock(lp, () => 'stolen');
   assert.strictEqual(r, 'stolen');
   assert.ok(!fs.existsSync(lp));
+  // the steal must leave a forensic audit record (never silent)
+  const auditPath = path.join(process.env.CLAUDE_ACCOUNTS_HOME, '.claude-accounts', 'audit.log');
+  assert.match(fs.readFileSync(auditPath, 'utf8'), /lock\.steal/);
 });

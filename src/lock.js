@@ -1,6 +1,8 @@
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
+const log = require('./log.js');
+const audit = require('./audit.js');
 
 // A cross-process advisory lock for the vault's critical sections (switch / add /
 // remove / adopt). The whole point of claude-accounts is to swap the live login
@@ -45,6 +47,15 @@ function acquire(lockPath) {
       continue; // holder released it between open and stat; retry immediately
     }
     if (age > STALE_MS || Date.now() - start > STALE_MS) {
+      // Stealing a lock means a prior holder crashed, or a live one was judged
+      // stale because WE waited too long (deadline) — the latter can let two
+      // mutations interleave. Either is worth a forensic record, never silent.
+      let holderPid = null;
+      try { holderPid = parseInt(fs.readFileSync(lockPath, 'utf8'), 10) || null; } catch { /* gone */ }
+      const trigger = age > STALE_MS ? 'stale' : 'deadline';
+      log.warn('lock.steal', { lock: log.tilde(lockPath), holderPid, ageMs: Math.round(age), trigger, staleMs: STALE_MS });
+      audit.record('lock.steal', { outcome: 'ok', reason: trigger, paths: { dest: lockPath } });
+      if (trigger === 'deadline') log.warn('lock.steal.contention', { holderPid, hint: 'holder was fresh; concurrent mutation possible' });
       try { fs.rmSync(lockPath, { force: true }); } catch { /* raced; retry */ }
       continue;
     }

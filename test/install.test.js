@@ -1,8 +1,9 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
-const { upsertBlock, normLang, CORE_FILES } = require('../install.js');
+const { upsertBlock, normLang, verifyFetch, CORE_FILES, WRAPPER_FILES } = require('../install.js');
 const { CORE_FILES: SRC_CORE_FILES } = require('../src/core-files.js');
 
 const START = '# >>> claude-accounts >>>';
@@ -28,6 +29,22 @@ test('upsertBlock replaces only its own block', () => {
 
 test('install.js CORE_FILES stays in sync with src/core-files.js', () => {
   assert.deepStrictEqual([...CORE_FILES].sort(), [...SRC_CORE_FILES].sort());
+});
+
+test('verifyFetch passes when the core is complete, throws on a missing/empty file', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'vf-'));
+  const all = [...CORE_FILES, ...WRAPPER_FILES];
+  for (const rel of all) {
+    const d = path.join(tmp, rel);
+    fs.mkdirSync(path.dirname(d), { recursive: true });
+    fs.writeFileSync(d, 'x');
+  }
+  assert.doesNotThrow(() => verifyFetch(tmp));
+  fs.writeFileSync(path.join(tmp, CORE_FILES[0]), ''); // empty
+  assert.throws(() => verifyFetch(tmp), /incomplete install/);
+  fs.writeFileSync(path.join(tmp, CORE_FILES[0]), 'x');
+  fs.rmSync(path.join(tmp, WRAPPER_FILES[0])); // missing
+  assert.throws(() => verifyFetch(tmp), /incomplete install/);
 });
 
 test('CORE_FILES covers every src/*.js module', () => {

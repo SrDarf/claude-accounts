@@ -15,3 +15,20 @@ test('atomicWrite writes content and readJson round-trips', () => {
 test('readJson returns null for missing file', () => {
   assert.strictEqual(u.readJson(path.join(os.tmpdir(), 'nope-xyz.json')), null);
 });
+
+test('chmodSafe surfaces a failure (returns false, never throws)', { skip: process.platform === 'win32' }, () => {
+  process.env.CLAUDE_ACCOUNTS_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'fsutil-home-'));
+  const f = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'fsutil-')), 'x');
+  fs.writeFileSync(f, '1');
+  const realChmod = fs.chmodSync;
+  fs.chmodSync = () => { const e = new Error('nope'); e.code = 'EPERM'; throw e; };
+  try {
+    let ret;
+    assert.doesNotThrow(() => { ret = u.chmodSafe(f, 0o600, 'test'); });
+    assert.strictEqual(ret, false);
+    assert.strictEqual(u.chmodSafe(f, 0o600), false); // works without a label too
+  } finally {
+    fs.chmodSync = realChmod;
+  }
+  assert.strictEqual(u.chmodSafe(f, 0o600), true); // succeeds once chmod works again
+});

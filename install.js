@@ -206,6 +206,18 @@ async function fetchAll(startLabel) {
   }
 }
 
+// Fail loudly on a partial fetch BEFORE anything is wired into the shell, so a
+// dropped download never leaves a half-installed core that breaks cryptically.
+function verifyFetch(coreDir = CORE_DIR) {
+  const missing = [...CORE_FILES, ...WRAPPER_FILES].filter((rel) => {
+    try { return fs.statSync(path.join(coreDir, rel)).size === 0; } catch { return true; }
+  });
+  if (missing.length) {
+    throw new Error(`incomplete install: ${missing.length} file(s) missing or empty: `
+      + `${missing.join(', ')}. Re-run the installer; nothing was wired into your shell.`);
+  }
+  done(`verified ${CORE_FILES.length + WRAPPER_FILES.length} files`);
+}
 
 function installUnix(real) {
   const tmpl = fs.readFileSync(path.join(CORE_DIR, 'wrappers', 'claude.sh.tmpl'), 'utf8')
@@ -258,6 +270,7 @@ async function main() {
   writeConfig(lang);
   step(M.downloading);
   await fetchAll(M.starting);
+  verifyFetch();
   // Reuse the runtime resolver now that the core is fetched, so the installer
   // and the wrappers agree on the real binary (and both honor CLAUDE_ACCOUNTS_REAL).
   const { resolveRealClaude } = require(path.join(CORE_DIR, 'src', 'claude-path.js'));
@@ -282,4 +295,4 @@ if (require.main === module) {
   main().catch((e) => { console.error(`\n  ${C.accent('✗')} ${e.message}\n`); process.exit(1); });
 }
 
-module.exports = { upsertBlock, backupThenWrite, normLang, detectLang, CORE_FILES };
+module.exports = { upsertBlock, backupThenWrite, normLang, detectLang, verifyFetch, CORE_FILES, WRAPPER_FILES };

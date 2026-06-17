@@ -25,7 +25,7 @@ function switchAccount(target) {
     vault.readLiveJson();
 
     atomicWrite(p.liveCreds(), slot.credentialsText);
-    chmodSafe(p.liveCreds(), 0o600);
+    chmodSafe(p.liveCreds(), 0o600, 'live-creds');
     vault.injectOAuthIntoLive(slot.oauthAccount || {});
 
     vault.setCurrent(target);

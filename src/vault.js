@@ -5,6 +5,8 @@ const p = require('./paths.js');
 const { atomicWrite, readJson, chmodSafe } = require('./fsutil.js');
 const { withLock } = require('./lock.js');
 const { t } = require('./i18n.js');
+const log = require('./log.js');
+const audit = require('./audit.js');
 
 // Concurrency contract: every mutator here self-locks the vault (p.lockPath()).
 // The lock is reentrant within a process, so a multi-step operation that must be
@@ -51,9 +53,9 @@ function writeSlot(name, { credentialsText, oauthAccount }) {
   withLock(p.lockPath(), () => {
     atomicWrite(p.slotCreds(name), credentialsText);
     atomicWrite(p.slotOAuth(name), JSON.stringify(oauthAccount, null, 2));
-    chmodSafe(p.slotDir(name), 0o700);
-    chmodSafe(p.slotCreds(name), 0o600);
-    chmodSafe(p.slotOAuth(name), 0o600);
+    chmodSafe(p.slotDir(name), 0o700, 'slot-dir');
+    chmodSafe(p.slotCreds(name), 0o600, 'slot-creds');
+    chmodSafe(p.slotOAuth(name), 0o600, 'slot-oauth');
   });
 }
 
@@ -108,7 +110,9 @@ function captureOAuthFromLive() {
   // readLiveJson() directly so it still refuses to clobber a corrupt file.
   try {
     return readLiveJson().oauthAccount || null;
-  } catch {
+  } catch (e) {
+    log.warn('live.json.corrupt', { path: log.tilde(p.liveJson()), err: e.message, action: 'degraded-to-null-identity' });
+    audit.record('livejson.corrupt', { outcome: 'fail', reason: 'corrupt-live-json', paths: { liveJson: p.liveJson() } });
     return null;
   }
 }
@@ -138,7 +142,11 @@ function resolveCurrentSlot(liveOAuth) {
     const cur = getCurrent();
     if (cur && slots.includes(cur)) return { name: cur, oauth: storedOAuth(cur) };
   }
-  return { name: uniqueName(deriveName(liveOAuth || {}), slots), oauth: liveOAuth || {} };
+  const name = uniqueName(deriveName(liveOAuth || {}), slots);
+  // No live identity to key off: we are about to write a slot with empty oauth
+  // (e.g. corrupt ~/.claude.json). Announce it so the identity loss isn't silent.
+  if (!liveEmail) log.warn('slot.identity.unknown', { slot: name });
+  return { name, oauth: liveOAuth || {} };
 }
 
 // Capture the live login into the vault slot that matches its identity. Returns
