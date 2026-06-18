@@ -1,6 +1,8 @@
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
+const log = require('./log.js');
+const audit = require('./audit.js');
 
 function atomicWrite(dest, body) {
   fs.mkdirSync(path.dirname(dest), { recursive: true });
@@ -14,9 +16,28 @@ function readJson(p) {
   return JSON.parse(fs.readFileSync(p, 'utf8'));
 }
 
-function chmodSafe(p, mode) {
-  if (process.platform === 'win32') return;
-  try { fs.chmodSync(p, mode); } catch (_) {}
+// Best-effort permission hardening. On a filesystem/platform where chmod fails,
+// a creds file can stay world-readable — so a failure is surfaced (WARN + audit)
+// instead of swallowed. Returns whether the mode was applied.
+function chmodSafe(p, mode, label) {
+  if (process.platform === 'win32') return true;
+  try { fs.chmodSync(p, mode); return true; }
+  catch (e) {
+    log.warn('chmod.failed', { path: log.tilde(p), mode: mode.toString(8), label, errno: e.code });
+    audit.record('chmod.failed', { outcome: 'fail', reason: 'chmod', paths: { dest: p } });
+    return false;
+  }
 }
 
-module.exports = { atomicWrite, readJson, chmodSafe };
+// Tag an error with the operation/step that failed (surfaced by cli.js even
+// without -v) and an optional exit code / cause. e.g.
+//   throw fail('switch:partial', msg, { cause: e, exit: 75 })
+function fail(step, message, opts = {}) {
+  const e = new Error(message);
+  e.caStep = step;
+  if (opts.cause) e.cause = opts.cause;
+  if (opts.exit) e.caExit = opts.exit;
+  return e;
+}
+
+module.exports = { atomicWrite, readJson, chmodSafe, fail };

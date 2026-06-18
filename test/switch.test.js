@@ -1,18 +1,10 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
+const { freshHome } = require('./helpers.js');
 
-function setup() {
-  const h = fs.mkdtempSync(path.join(os.tmpdir(), 'sw-home-'));
-  process.env.CLAUDE_ACCOUNTS_HOME = h;
-  fs.mkdirSync(path.join(h, '.claude', '.accounts'), { recursive: true });
-  for (const m of ['vault', 'switch', 'paths', 'fsutil']) {
-    delete require.cache[require.resolve(`../src/${m}.js`)];
-  }
-  return h;
-}
+const setup = () => freshHome({ accounts: true, bust: ['vault', 'switch', 'paths', 'fsutil'] });
 
 test('switch loads target creds + oauth and updates marker', () => {
   const h = setup();
@@ -76,4 +68,27 @@ test('switch preserves current slot oauth when live has none', () => {
   require('../src/switch.js').switchAccount('home');
   // work slot must keep its original oauth, not be clobbered to {}
   assert.strictEqual(vault.readSlot('work').oauthAccount.emailAddress, 'w@x.com');
+});
+
+test('a failed switch rolls back to a consistent FROM state (no contamination)', () => {
+  const h = setup();
+  const vault = require('../src/vault.js');
+  const { switchAccount } = require('../src/switch.js');
+  vault.writeSlot('work', { credentialsText: '{"tok":"W"}', oauthAccount: { emailAddress: 'w@x.com' } });
+  vault.writeSlot('home', { credentialsText: '{"tok":"H"}', oauthAccount: { emailAddress: 'h@x.com' } });
+  fs.writeFileSync(path.join(h, '.claude', '.credentials.json'), '{"tok":"W"}');
+  fs.writeFileSync(path.join(h, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'w@x.com' } }));
+  vault.setCurrent('work');
+
+  const orig = vault.injectOAuthIntoLive;
+  vault.injectOAuthIntoLive = () => { throw new Error('boom'); };
+  try {
+    assert.throws(() => switchAccount('home'), /home/i);
+  } finally {
+    vault.injectOAuthIntoLive = orig;
+  }
+  // live creds rolled back to work, marker still work, work slot uncontaminated
+  assert.strictEqual(fs.readFileSync(path.join(h, '.claude', '.credentials.json'), 'utf8'), '{"tok":"W"}');
+  assert.strictEqual(vault.getCurrent(), 'work');
+  assert.strictEqual(vault.readSlot('work').credentialsText, '{"tok":"W"}');
 });

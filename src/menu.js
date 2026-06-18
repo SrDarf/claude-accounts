@@ -86,6 +86,9 @@ function renderLines(items, idx, opts = {}) {
   // Reserve a fixed-width column for the active tag so the usage bars line up
   // whether or not a given row carries the "● active" badge.
   const tagPlain = `● ${t('menuActive')}`;
+  // Use the padded (bar) layout for ALL rows whenever ANY account has usage, so a
+  // row with empty/failed usage doesn't fall back to a narrower layout and misalign.
+  const anyUsage = !!usage && names.some((it) => usageInline(usage[it.value]) !== '');
   const lines = ['', `  ${danger ? red(title) : accentBold(title)}`, ''];
 
   items.forEach((it, i) => {
@@ -100,7 +103,7 @@ function renderLines(items, idx, opts = {}) {
       const padded = it.label.padEnd(labelW);
       const label = selected ? (danger ? red(padded) : accentBold(padded)) : padded;
       const usageStr = usage ? usageInline(usage[it.value]) : '';
-      if (usageStr) {
+      if (anyUsage) {
         // Pad the name+email+tag block to a stable width so every row's bars
         // start at the same column.
         const mailCell = mailW ? `  ${dim((it.email || '').padEnd(mailW))}` : '';
@@ -189,25 +192,24 @@ function runMenu(names, current, emails = {}, opts = {}) {
 function confirm(message, opts = {}) {
   const danger = opts.danger !== false;
   const labels = [t('confirmNo'), t('confirmYes')];
-  let idx = 0; // default to the safe choice
+  let state = { idx: 0, n: labels.length }; // default to the safe choice
   const view = () => {
     const lines = ['', `  ${danger ? red(message) : accentBold(message)}`, ''];
     labels.forEach((label, i) => {
-      const selected = i === idx;
+      const selected = i === state.idx;
       const pointer = selected ? (danger && i === 1 ? red('❯') : accent('❯')) : ' ';
-      let text;
-      if (!selected) text = dim(label);
-      else text = (danger && i === 1) ? red(label) : accentBold(label);
+      const text = !selected ? dim(label) : ((danger && i === 1) ? red(label) : accentBold(label));
       lines.push(`  ${pointer} ${text}`);
     });
     lines.push('');
     lines.push(`  ${dim(t('confirmHint'))}`);
     return lines;
   };
+  // Same reducer the account menu uses; for a two-item list up/down just toggle.
   return interact(view, (key) => {
-    if (key === 'up' || key === 'down') { idx = (idx + 1) % 2; return null; }
-    if (key === 'enter') return { value: idx === 1 };
-    if (key === 'escape') return { value: false };
+    state = reduceKey(state, key);
+    if (state.done === 'select') return { value: state.idx === 1 };
+    if (state.done === 'cancel') return { value: false };
     return null;
   });
 }

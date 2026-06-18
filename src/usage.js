@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const p = require('./paths.js');
 const { atomicWrite, chmodSafe } = require('./fsutil.js');
 const { withLock } = require('./lock.js');
+const log = require('./log.js');
 
 // Endpoints + OAuth client, verified against the bundled `claude` binary:
 //   GET  api.anthropic.com/api/oauth/usage      -> per-window utilization
@@ -77,9 +78,13 @@ function persist(name, current, json, oauth) {
   const body = JSON.stringify({ ...json, claudeAiOauth: oauth }, null, 2);
   if (name === current) {
     atomicWrite(file, body);
+    chmodSafe(file, 0o600, 'live-creds'); // never leave refreshed live creds world-readable
   } else {
-    withLock(p.lockPath(), () => atomicWrite(file, body));
-    chmodSafe(file, 0o600);
+    // chmod INSIDE the lock so the slot creds are never briefly 0o644 under contention.
+    withLock(p.lockPath(), () => {
+      atomicWrite(file, body);
+      chmodSafe(file, 0o600, 'slot-creds');
+    });
   }
 }
 
@@ -111,7 +116,10 @@ async function accountUsage(name, current) {
     if (!oauth || !oauth.accessToken) return { name, ok: false, reason: 'no-token' };
     if (oauth.refreshToken && (oauth.expiresAt || 0) - Date.now() < REFRESH_BUFFER_MS) {
       oauth = await refresh(oauth);
-      persist(name, current, json, oauth);
+      // Persist the (possibly rotated) token, but a write failure must NOT abort
+      // the usage fetch — the in-memory access token is still valid for this run.
+      try { persist(name, current, json, oauth); }
+      catch (e) { log.warn('usage.persist.failed', { account: name, err: e.message }); }
     }
     const usage = await fetchUsage(oauth.accessToken);
     return { name, ok: true, ...usage };
@@ -127,4 +135,4 @@ async function getAll(names, current) {
   return map;
 }
 
-module.exports = { getAll, accountUsage, fetchUsage, refresh };
+module.exports = { getAll, accountUsage, fetchUsage, refresh, persist };

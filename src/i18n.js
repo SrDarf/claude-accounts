@@ -19,11 +19,21 @@ const STRINGS = {
     nothingToRemove: 'No accounts to remove.',
     promptName: 'New account name: ',
     activeNow: (n) => `Active account: ${n}`,
+    activeNowEmail: (n, e) => `Active account: ${n}  (${e})`,
     already: (n) => `Already on '${n}'.`,
     removed: (n) => `removed: ${n}`,
+    notFound: (n) => `no such account: '${n}'`,
     nothingCaptured: 'Nothing captured (login aborted).',
     nothingShort: 'Nothing captured.',
     added: (n) => `Added: ${n}`,
+    addedEmail: (n, e) => `Added: ${n}  (${e})`,
+    adopted: (n) => `current login registered as '${n}'`,
+    addTimeout: 'No credentials appeared after login (timed out). Did you complete /login?',
+    addKeyring: 'Login succeeded but stored credentials outside a file (OS keyring); cannot vault this account.',
+    switchFailed: (n) => `switch to '${n}' failed; no change made (rolled back).`,
+    unregistered: 'logged in, not registered',
+    noAuditYet: 'No audit records yet.',
+    usageLog: 'usage: log [N] [--json] [--fails]',
     cancelled: 'Cancelled.',
     usageSwitch: 'usage: switch <name>',
     usageRemove: 'usage: remove <name>',
@@ -32,9 +42,6 @@ const STRINGS = {
     invalidName: (n) => `invalid name: '${n}'`,
     exists: (n) => `account '${n}' already exists`,
     usageLoading: 'loading usage…',
-    usageSession: 'session',
-    usageWeek: 'week',
-    usageReset: 'reset',
     usageNow: 'now',
     usageUnavailable: 'usage unavailable',
   },
@@ -53,11 +60,21 @@ const STRINGS = {
     nothingToRemove: 'Nenhuma conta para remover.',
     promptName: 'Nome da nova conta: ',
     activeNow: (n) => `Conta ativa: ${n}`,
+    activeNowEmail: (n, e) => `Conta ativa: ${n}  (${e})`,
     already: (n) => `Ja na conta '${n}'.`,
     removed: (n) => `removida: ${n}`,
+    notFound: (n) => `conta inexistente: '${n}'`,
     nothingCaptured: 'Nada capturado (login abortado).',
     nothingShort: 'Nada capturado.',
     added: (n) => `Adicionada: ${n}`,
+    addedEmail: (n, e) => `Adicionada: ${n}  (${e})`,
+    adopted: (n) => `login atual registrado como '${n}'`,
+    addTimeout: 'Nenhuma credencial apareceu apos o login (timeout). Voce completou o /login?',
+    addKeyring: 'Login funcionou mas guardou as credenciais fora de arquivo (keyring do SO); nao da pra versionar essa conta.',
+    switchFailed: (n) => `troca para '${n}' falhou; nada foi alterado (revertido).`,
+    unregistered: 'logado, nao registrado',
+    noAuditYet: 'Nenhum registro de auditoria ainda.',
+    usageLog: 'uso: log [N] [--json] [--fails]',
     cancelled: 'Cancelado.',
     usageSwitch: 'uso: switch <nome>',
     usageRemove: 'uso: remove <nome>',
@@ -66,9 +83,6 @@ const STRINGS = {
     invalidName: (n) => `nome invalido: '${n}'`,
     exists: (n) => `conta '${n}' ja existe`,
     usageLoading: 'carregando uso…',
-    usageSession: 'sessao',
-    usageWeek: 'semana',
-    usageReset: 'reseta',
     usageNow: 'agora',
     usageUnavailable: 'uso indisponivel',
   },
@@ -80,17 +94,6 @@ function norm(v) {
   if (s.startsWith('pt')) return 'pt';
   if (s.startsWith('en')) return 'en';
   return null;
-}
-
-function detectLocale() {
-  const env = process.env.CLAUDE_ACCOUNTS_LANG || process.env.LC_ALL || process.env.LANG || '';
-  const n = norm(env);
-  if (n) return n;
-  try {
-    return norm(Intl.DateTimeFormat().resolvedOptions().locale) || 'en';
-  } catch {
-    return 'en';
-  }
 }
 
 // The on-disk language never changes within a single CLI process, so read and
@@ -124,4 +127,4 @@ function t(key, ...args) {
   return typeof s === 'function' ? s(...args) : s;
 }
 
-module.exports = { t, lang, norm, detectLocale, STRINGS };
+module.exports = { t, lang, norm, STRINGS };

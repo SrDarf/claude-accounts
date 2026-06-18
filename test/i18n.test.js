@@ -1,6 +1,10 @@
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { t, norm, detectLocale } = require('../src/i18n.js');
+const { t, norm, STRINGS } = require('../src/i18n.js');
+
+test('every string key exists in both en and pt', () => {
+  assert.deepStrictEqual(Object.keys(STRINGS.pt).sort(), Object.keys(STRINGS.en).sort());
+});
 
 test('norm maps locale-ish strings to pt/en or null', () => {
   assert.strictEqual(norm('pt-BR'), 'pt');
@@ -9,16 +13,6 @@ test('norm maps locale-ish strings to pt/en or null', () => {
   assert.strictEqual(norm('English'), 'en');
   assert.strictEqual(norm('fr'), null);
   assert.strictEqual(norm(''), null);
-});
-
-test('detectLocale honors CLAUDE_ACCOUNTS_LANG', () => {
-  const prev = process.env.CLAUDE_ACCOUNTS_LANG;
-  process.env.CLAUDE_ACCOUNTS_LANG = 'pt-BR';
-  assert.strictEqual(detectLocale(), 'pt');
-  process.env.CLAUDE_ACCOUNTS_LANG = 'en';
-  assert.strictEqual(detectLocale(), 'en');
-  if (prev === undefined) delete process.env.CLAUDE_ACCOUNTS_LANG;
-  else process.env.CLAUDE_ACCOUNTS_LANG = prev;
 });
 
 test('t returns localized strings and formats args', () => {

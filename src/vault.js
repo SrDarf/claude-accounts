@@ -5,14 +5,26 @@ const p = require('./paths.js');
 const { atomicWrite, readJson, chmodSafe } = require('./fsutil.js');
 const { withLock } = require('./lock.js');
 const { t } = require('./i18n.js');
+const log = require('./log.js');
+const audit = require('./audit.js');
 
-// Names whose slot dir would collide with a control file in the vault: the
-// marker (vaultDir/current) and the lock (vaultDir/.lock). Creating or removing
-// a slot with these names would corrupt the current-account tracking.
-const RESERVED = new Set(['current', '.lock']);
+// Concurrency contract: every mutator here self-locks the vault (p.lockPath()).
+// The lock is reentrant within a process, so a multi-step operation that must be
+// atomic as a whole (switchAccount in switch.js, addAccount in login.js) wraps its
+// sequence in withLock and the nested per-method locks become free re-entries.
+// Reads do not lock: atomicWrite renames into place, so a reader always sees a
+// whole old-or-new file, never a torn one.
+
+// Names that must never become a slot. 'current'/'.lock' collide with the
+// marker (vaultDir/current) and lock (vaultDir/.lock) control files; '.' and
+// '..' escape the vault dir (slotDir('..') === ~/.claude). Rejecting them here
+// is the single source of truth, so switch/add/remove are all protected.
+const RESERVED = new Set(['current', '.lock', '.', '..']);
 
 function validAccountName(name) {
-  return typeof name === 'string' && /^[A-Za-z0-9._-]+$/.test(name) && !RESERVED.has(name);
+  // First char must not be '-' so a name can never be mistaken for a CLI flag
+  // (e.g. `switch -v` would otherwise be stripped before it reaches the handler).
+  return typeof name === 'string' && /^[A-Za-z0-9._][A-Za-z0-9._-]*$/.test(name) && !RESERVED.has(name);
 }
 
 function list() {
@@ -30,19 +42,23 @@ function getCurrent() {
 }
 
 function setCurrent(name) {
-  atomicWrite(p.markerPath(), name);
+  withLock(p.lockPath(), () => atomicWrite(p.markerPath(), name));
 }
 
 function clearCurrent() {
-  try { fs.rmSync(p.markerPath(), { force: true }); } catch { /* nothing to clear */ }
+  withLock(p.lockPath(), () => {
+    try { fs.rmSync(p.markerPath(), { force: true }); } catch { /* nothing to clear */ }
+  });
 }
 
 function writeSlot(name, { credentialsText, oauthAccount }) {
-  atomicWrite(p.slotCreds(name), credentialsText);
-  atomicWrite(p.slotOAuth(name), JSON.stringify(oauthAccount, null, 2));
-  chmodSafe(p.slotDir(name), 0o700);
-  chmodSafe(p.slotCreds(name), 0o600);
-  chmodSafe(p.slotOAuth(name), 0o600);
+  withLock(p.lockPath(), () => {
+    atomicWrite(p.slotCreds(name), credentialsText);
+    atomicWrite(p.slotOAuth(name), JSON.stringify(oauthAccount, null, 2));
+    chmodSafe(p.slotDir(name), 0o700, 'slot-dir');
+    chmodSafe(p.slotCreds(name), 0o600, 'slot-creds');
+    chmodSafe(p.slotOAuth(name), 0o600, 'slot-oauth');
+  });
 }
 
 function readSlot(name) {
@@ -52,19 +68,20 @@ function readSlot(name) {
   };
 }
 
+// Tolerant slot-oauth read: a corrupt file must not crash list/menu rendering.
+function storedOAuth(name) {
+  try { return readJson(p.slotOAuth(name)); } catch { return null; }
+}
+
 function email(name) {
-  // Tolerant: a corrupt slot oauth file must not crash `list`/menu rendering.
-  try {
-    const o = readJson(p.slotOAuth(name));
-    return (o && o.emailAddress) || '';
-  } catch {
-    return '';
-  }
+  const o = storedOAuth(name);
+  return (o && o.emailAddress) || '';
 }
 
 function deriveName(oauthAccount) {
   const e = (oauthAccount && oauthAccount.emailAddress) || '';
-  const local = String(e).split('@')[0].replace(/[^A-Za-z0-9._-]/g, '');
+  // Strip invalid chars AND any leading '-'/'.' so the result is a valid account name.
+  const local = String(e).split('@')[0].replace(/[^A-Za-z0-9._-]/g, '').replace(/^[-.]+/, '');
   return local || 'default';
 }
 
@@ -96,49 +113,58 @@ function captureOAuthFromLive() {
   // readLiveJson() directly so it still refuses to clobber a corrupt file.
   try {
     return readLiveJson().oauthAccount || null;
-  } catch {
+  } catch (e) {
+    log.warn('live.json.corrupt', { path: log.tilde(p.liveJson()), err: e.message, action: 'degraded-to-null-identity' });
+    audit.record('livejson.corrupt', { outcome: 'fail', reason: 'corrupt-live-json', paths: { liveJson: p.liveJson() } });
     return null;
   }
 }
 
 function injectOAuthIntoLive(oauthAccount) {
-  const j = readLiveJson();
-  j.oauthAccount = oauthAccount;
-  atomicWrite(p.liveJson(), JSON.stringify(j, null, 2));
+  withLock(p.lockPath(), () => {
+    const j = readLiveJson();
+    j.oauthAccount = oauthAccount;
+    atomicWrite(p.liveJson(), JSON.stringify(j, null, 2));
+  });
 }
 
 // Decide which slot the *currently live* login belongs to. We key off identity
 // (the live oauth email), NOT the marker, so a stale or dangling marker (e.g.
 // after a crash mid-switch, or after removing the active account) can never make
 // us save the live tokens into the wrong account's slot.
+// Returns { name, oauth } where oauth is the identity to persist if the live
+// login has none of its own: the live identity wins when present, otherwise we
+// keep the marker slot's stored oauth so a switch never blanks it out.
 function resolveCurrentSlot(liveOAuth) {
   const liveEmail = liveOAuth && liveOAuth.emailAddress;
   const slots = list();
   if (liveEmail) {
     const match = slots.find((n) => email(n) === liveEmail);
-    if (match) return { name: match, existing: true };
+    if (match) return { name: match, oauth: liveOAuth };
   } else {
     const cur = getCurrent();
-    if (cur && slots.includes(cur)) return { name: cur, existing: true };
+    if (cur && slots.includes(cur)) return { name: cur, oauth: storedOAuth(cur) };
   }
-  return { name: uniqueName(deriveName(liveOAuth || {}), slots), existing: false };
+  const name = uniqueName(deriveName(liveOAuth || {}), slots);
+  // No live identity to key off: we are about to write a slot with empty oauth
+  // (e.g. corrupt ~/.claude.json). Announce it so the identity loss isn't silent.
+  if (!liveEmail) log.warn('slot.identity.unknown', { slot: name });
+  return { name, oauth: liveOAuth || {} };
 }
 
 // Capture the live login into the vault slot that matches its identity. Returns
-// the slot name, or null if there is no live login to save. Caller holds the
-// lock; this never overwrites the live files.
+// the slot name, or null if there is no live login to save. Never overwrites the
+// live files; self-locks (and is also called inside switch/adopt's outer lock).
 function saveCurrentLogin() {
-  if (!fs.existsSync(p.liveCreds())) return null;
-  const credentialsText = fs.readFileSync(p.liveCreds(), 'utf8');
-  const liveOAuth = captureOAuthFromLive();
-  const { name, existing } = resolveCurrentSlot(liveOAuth);
-  let kept = null;
-  if (existing) {
-    try { kept = readJson(p.slotOAuth(name)); } catch { kept = null; }
-  }
-  const oauthAccount = liveOAuth || kept || {};
-  writeSlot(name, { credentialsText, oauthAccount });
-  return name;
+  return withLock(p.lockPath(), () => {
+    if (!fs.existsSync(p.liveCreds())) return null;
+    const credentialsText = fs.readFileSync(p.liveCreds(), 'utf8');
+    const liveOAuth = captureOAuthFromLive();
+    const { name, oauth } = resolveCurrentSlot(liveOAuth);
+    writeSlot(name, { credentialsText, oauthAccount: liveOAuth || oauth || {} });
+    audit.ok('save-slot', { account: name, cred: audit.credMeta(credentialsText) });
+    return name;
+  });
 }
 
 // First-run safety: register the already logged-in account as the initial slot
@@ -150,7 +176,7 @@ function adoptCurrent() {
   return withLock(p.lockPath(), () => {
     if (getCurrent()) return null; // re-check under lock
     const name = saveCurrentLogin();
-    if (name) setCurrent(name);
+    if (name) { setCurrent(name); audit.ok('adopt', { account: name }); }
     return name;
   });
 }
@@ -172,6 +198,7 @@ function removeAccount(name) {
     const existed = fs.existsSync(dir);
     fs.rmSync(dir, { recursive: true, force: true });
     if (getCurrent() === name) clearCurrent();
+    audit.record('remove', { account: name, outcome: 'ok', reason: existed ? undefined : 'not-found' });
     return { removed: existed, account: name };
   });
 }

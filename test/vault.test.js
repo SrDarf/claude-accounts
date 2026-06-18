@@ -1,15 +1,8 @@
 const { test, beforeEach } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
-
-function freshHome() {
-  const h = fs.mkdtempSync(path.join(os.tmpdir(), 'ca-home-'));
-  process.env.CLAUDE_ACCOUNTS_HOME = h;
-  fs.mkdirSync(path.join(h, '.claude'), { recursive: true });
-  return h;
-}
+const { freshHome } = require('./helpers.js');
 
 beforeEach(() => { delete require.cache[require.resolve('../src/vault.js')]; });
 
