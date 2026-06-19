@@ -33,9 +33,25 @@ Everything else — settings, hooks, skills, projects, history — stays in one 
 
 ## Install
 
+**macOS / Linux** (bash, zsh):
+
 ```
 curl -fsSL https://raw.githubusercontent.com/SrDarf/claude-accounts/main/install.js | node
 ```
+
+**Windows — PowerShell** (5.1 or 7):
+
+```powershell
+irm https://raw.githubusercontent.com/SrDarf/claude-accounts/main/install.js -OutFile "$env:TEMP\ca-install.js"; node "$env:TEMP\ca-install.js"
+```
+
+**Windows — cmd.exe**:
+
+```
+curl -fsSL https://raw.githubusercontent.com/SrDarf/claude-accounts/main/install.js -o "%TEMP%\ca-install.js" && node "%TEMP%\ca-install.js"
+```
+
+> **PowerShell note:** don't use the `curl ... | node` form there — in PowerShell `curl` is an alias for `Invoke-WebRequest`, which doesn't accept `-fsSL` and won't pipe the script to `node`. Use the `irm` command above (download, then run). If `irm` fails with an SSL/TLS error on an old PowerShell 5.1, run `[Net.ServicePointManager]::SecurityProtocol = 'Tls12'` first.
 
 ![installer](docs/img/install.png)
 
@@ -43,12 +59,13 @@ The installer fetches a dependency-free Node core into `~/.claude-accounts`, res
 
 ### Language
 
-On install you choose the interface language — **English** or **Português (BR)**. When run interactively (a TTY), the installer prompts; the choice is saved to `~/.claude-accounts/config.json` and used by the selector and all messages.
+On install you choose the interface language — **English** or **Português (BR)**. When run interactively (a TTY), the installer shows an arrow-key prompt; the choice is saved to `~/.claude-accounts/config.json` and used by the selector and all messages. The Windows commands above download the file and then run it, so they prompt interactively too — only the piped `curl | node` form skips the prompt.
 
-Non-interactive (`curl | node`) installs auto-detect from your OS locale. Force a language explicitly:
+A piped install (`curl ... | node`, macOS/Linux) has no TTY and auto-detects from your OS locale. Force a language explicitly:
 
 ```
-curl -fsSL .../install.js | node - --lang pt    # or: --lang en
+curl -fsSL .../install.js | node - --lang pt                 # macOS/Linux
+node "$env:TEMP\ca-install.js" --lang pt                     # Windows, after download (or: --lang en)
 ```
 
 Change it any time by editing `~/.claude-accounts/config.json` (`{"lang":"pt"}`) or setting `CLAUDE_ACCOUNTS_LANG=en`.
